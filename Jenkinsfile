@@ -57,9 +57,5 @@ def executePipeline() {
             }
         }
     }
-    post {
-        always {
-            cleanWs()
-        }
-    }
+  
 }

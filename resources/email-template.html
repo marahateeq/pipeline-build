@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background-color: {
+                    {
+                    STATUS_COLOR
+                }
+            }
+
+            ;
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+
+        .content {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 5px;
+
+            border-left: 4px solid {
+                    {
+                    STATUS_COLOR
+                }
+            }
+
+            ;
+        }
+
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .info-table td {
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .info-table td:first-child {
+            font-weight: bold;
+            width: 150px;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 20px 0;
+            background-color: #007bff;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+
+        .button:hover {
+            background-color: #0056b3;
+        }
+
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>Build {{BUILD_STATUS}}</h1>
+    </div>
+
+    <div class="content">
+        <h2>Build Information</h2>
+
+        <table class="info-table">
+            <tr>
+                <td>Job Name:</td>
+                <td>{{JOB_NAME}}</td>
+            </tr>
+            <tr>
+                <td>Build Number:</td>
+                <td>#{{BUILD_NUMBER}}</td>
+            </tr>
+            <tr>
+                <td>Status:</td>
+                <td style="color: {{STATUS_COLOR}}; font-weight: bold;">{{BUILD_STATUS}}</td>
+            </tr>
+            <tr>
+                <td>Repository:</td>
+                <td>{{REPO_NAME}}</td>
+            </tr>
+            <tr>
+                <td>Branch/Tag:</td>
+                <td>{{BRANCH_NAME}}</td>
+            </tr>
+            <tr>
+                <td>Version:</td>
+                <td>{{VERSION}}</td>
+            </tr>
+            <tr>
+                <td>Duration:</td>
+                <td>{{DURATION}}</td>
+            </tr>
+        </table>
+
+        <a href="{{BUILD_URL}}" class="button">View Build Details</a>
+
+        <a href="{{BUILD_URL}}console" class="button" style="background-color: #6c757d;">View Console Output</a>
+    </div>
+
+    <div class="footer">
+        <p>This is an automated notification from Jenkins CI/CD Pipeline</p>
+        <p>Please do not reply to this email</p>
+    </div>
+</body>
+
+</html>

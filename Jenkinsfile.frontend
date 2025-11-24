@@ -6,7 +6,7 @@ def executePipeline() {
     try {
         withEnv([
             "NODE_VERSION=18",
-            "GIT_CREDENTIALS=jenkins-github-integration",
+            "GIT_CREDENTIALS=4b9370cd-c3b6-4fbe-9a73-73f971061ad1",
             "DOCKER_REGISTRY=localhost:5000"
         ]) {
 

@@ -39,7 +39,7 @@ def sendEmailNotification() {
     def subject = "${statusIcon} Build ${buildStatus}: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
 
     // Read email template
-    def templatePath = "${env.WORKSPACE}/../pipeline-build/resources/email-template.html"
+    def templatePath = "${env.SHARED_LIB_DIR}/resources/email-template.html"
     def emailBody = ""
 
     try {

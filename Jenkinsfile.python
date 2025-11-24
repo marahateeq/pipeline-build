@@ -6,7 +6,7 @@ def executePipeline() {
     try {
         withEnv([
             "PYTHON_VERSION=3.11",
-            "GIT_CREDENTIALS=jenkins-github-integration",
+            "GIT_CREDENTIALS=4b9370cd-c3b6-4fbe-9a73-73f971061ad1",
             "DOCKER_REGISTRY=localhost:5000",
             "BUILD_ARTIFACTS_PATH=/opt/build-artifacts"
         ]) {

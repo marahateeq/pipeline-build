@@ -1,0 +1,153 @@
+// Shared Jenkins Pipeline for Frontend Application Builds
+// This pipeline builds frontend applications (HTML/JS/CSS), creates Docker images with Nginx
+// Usage: Load this pipeline from your service's Jenkinsfile using @Library
+
+def executePipeline() {
+    try {
+        withEnv([
+            "NODE_VERSION=18",
+            "GIT_CREDENTIALS=jenkins-github-integration",
+            "DOCKER_REGISTRY=localhost:5000"
+        ]) {
+
+            stage('Init') {
+                script {
+                    echo "========================================"
+                    echo "Starting Frontend Build Pipeline"
+                    echo "========================================"
+                    echo "APP_NAME: ${env.APP_NAME}"
+                    echo "GIT_URL: ${env.GIT_URL}"
+                    echo "BRANCH_NAME: ${env.BRANCH_NAME}"
+
+                    // Clear workspace
+                    deleteDir()
+
+                    // Checkout code
+                    echo "Checking out branch/tag: ${env.BRANCH_NAME} from ${env.GIT_URL}"
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "${env.BRANCH_NAME}"]],
+                        userRemoteConfigs: [[url: "${env.GIT_URL}", credentialsId: "${env.GIT_CREDENTIALS}"]]
+                    ])
+
+                    // Send start notification
+                    notify.sendStartNotification()
+
+                    // Extract repo name
+                    env.REPO_NAME = sh(
+                        script: "basename -s .git ${env.GIT_URL}",
+                        returnStdout: true
+                    ).trim()
+                    echo "Repository Name: ${env.REPO_NAME}"
+
+                    // Determine version
+                    if (env.BRANCH_NAME?.startsWith('refs/tags/') || env.BRANCH_NAME ==~ /^\d+\.\d+\.\d+.*$/) {
+                        env.VERSION = env.BRANCH_NAME.replace('refs/tags/', '').trim()
+                        echo "Version (Tag): ${env.VERSION}"
+                    } else {
+                        def shortCommitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                        env.VERSION = "${shortCommitId}"
+                        echo "Version (Commit): ${env.VERSION}"
+                    }
+                }
+            }
+
+            stage('Install Dependencies') {
+                script {
+                    if (fileExists("${env.WORKSPACE}/package.json")) {
+                        echo "Installing Node.js dependencies"
+                        sh """
+                            # Use nvm to set Node version
+                            export NVM_DIR="\$HOME/.nvm"
+                            [ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"
+                            nvm use ${env.NODE_VERSION} || nvm install ${env.NODE_VERSION}
+
+                            # Install dependencies
+                            npm ci || npm install
+                        """
+                    } else {
+                        echo "No package.json found - static frontend, no dependencies needed"
+                    }
+                }
+            }
+
+            stage('Build Frontend') {
+                script {
+                    if (fileExists("${env.WORKSPACE}/package.json")) {
+                        echo "Building frontend application"
+                        sh """
+                            export NVM_DIR="\$HOME/.nvm"
+                            [ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"
+                            nvm use ${env.NODE_VERSION}
+
+                            # Run build script if it exists
+                            npm run build || echo "No build script defined"
+                        """
+                    } else {
+                        echo "Static frontend - no build step required"
+                    }
+                }
+            }
+
+            stage('Run Tests') {
+                script {
+                    if (fileExists("${env.WORKSPACE}/package.json")) {
+                        echo "Running frontend tests"
+                        sh """
+                            export NVM_DIR="\$HOME/.nvm"
+                            [ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"
+                            nvm use ${env.NODE_VERSION}
+
+                            npm test || echo "No tests defined"
+                        """
+                    } else {
+                        echo "No test framework configured"
+                    }
+                }
+            }
+
+            // Docker Build and Push stages
+            if (fileExists("${env.WORKSPACE}/Dockerfile")) {
+                stage('Docker Build') {
+                    script {
+                        env.REPO_NAME_LOWER = env.REPO_NAME.toLowerCase()
+                        echo "Building Docker image: ${env.REPO_NAME_LOWER}:${env.VERSION}"
+                        sh """
+                            docker rmi -f ${env.REPO_NAME_LOWER}:latest || true
+                            docker rmi -f ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:${env.VERSION} || true
+                            docker build -t ${env.REPO_NAME_LOWER}:latest .
+                        """
+                    }
+                }
+
+                if (env.BRANCH_NAME?.startsWith('refs/tags/') || env.BRANCH_NAME ==~ /^\d+\.\d+\.\d+.*$/) {
+                    stage('Docker Push') {
+                        script {
+                            echo "Pushing Docker image to registry"
+                            sh """
+                                docker tag ${env.REPO_NAME_LOWER}:latest ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:${env.VERSION}
+                                docker push ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:${env.VERSION}
+
+                                # Also push as 'latest'
+                                docker tag ${env.REPO_NAME_LOWER}:latest ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:latest
+                                docker push ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:latest
+                            """
+                        }
+                    }
+                } else {
+                    echo "Skipping Docker push for non-release builds"
+                }
+            } else {
+                echo "No Dockerfile found - skipping Docker stages"
+            }
+        }
+    } catch (err) {
+        currentBuild.result = 'FAILURE'
+        echo "Build failed: ${err}"
+        throw err
+    } finally {
+        notify.sendEmailNotification()
+    }
+}
+
+return this

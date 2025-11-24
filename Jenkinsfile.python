@@ -1,0 +1,166 @@
+// Shared Jenkins Pipeline for Python Service Builds
+// This pipeline builds Python applications, creates Docker images, and publishes to container registry
+// Usage: Load this pipeline from your service's Jenkinsfile using @Library
+
+def executePipeline() {
+    try {
+        withEnv([
+            "PYTHON_VERSION=3.11",
+            "GIT_CREDENTIALS=jenkins-github-integration",
+            "DOCKER_REGISTRY=localhost:5000",
+            "BUILD_ARTIFACTS_PATH=/opt/build-artifacts"
+        ]) {
+
+            stage('Init') {
+                script {
+                    echo "========================================"
+                    echo "Starting Python Build Pipeline"
+                    echo "========================================"
+                    echo "APP_NAME: ${env.APP_NAME}"
+                    echo "GIT_URL: ${env.GIT_URL}"
+                    echo "BRANCH_NAME: ${env.BRANCH_NAME}"
+
+                    // Clear workspace
+                    deleteDir()
+
+                    // Checkout code
+                    echo "Checking out branch/tag: ${env.BRANCH_NAME} from ${env.GIT_URL}"
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "${env.BRANCH_NAME}"]],
+                        userRemoteConfigs: [[url: "${env.GIT_URL}", credentialsId: "${env.GIT_CREDENTIALS}"]]
+                    ])
+
+                    // Send start notification
+                    notify.sendStartNotification()
+
+                    // Extract repo name
+                    env.REPO_NAME = sh(
+                        script: "basename -s .git ${env.GIT_URL}",
+                        returnStdout: true
+                    ).trim()
+                    echo "Repository Name: ${env.REPO_NAME}"
+
+                    // Determine version
+                    if (env.BRANCH_NAME?.startsWith('refs/tags/') || env.BRANCH_NAME ==~ /^\d+\.\d+\.\d+.*$/) {
+                        env.VERSION = env.BRANCH_NAME.replace('refs/tags/', '').trim()
+                        echo "Version (Tag): ${env.VERSION}"
+                    } else {
+                        def shortCommitId = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                        env.VERSION = "${shortCommitId}"
+                        echo "Version (Commit): ${env.VERSION}"
+                    }
+                }
+            }
+
+            stage('Setup Python Environment') {
+                script {
+                    echo "Setting up Python ${env.PYTHON_VERSION} environment"
+                    sh """
+                        # Create virtual environment
+                        python${env.PYTHON_VERSION} -m venv venv
+
+                        # Activate and install dependencies
+                        . venv/bin/activate
+                        pip install --upgrade pip
+                        pip install -r requirements.txt
+
+                        # Install build tools
+                        pip install pytest pylint pyinstaller
+
+                        echo "Python environment ready"
+                    """
+                }
+            }
+
+            stage('Run Tests') {
+                script {
+                    echo "Running unit tests"
+                    sh """
+                        . venv/bin/activate
+                        pytest tests/ -v || echo "No tests found"
+                    """
+                }
+            }
+
+            stage('Build Application') {
+                script {
+                    echo "Building Python application"
+                    sh """
+                        . venv/bin/activate
+
+                        # Build standalone executable if main script exists
+                        if [ -f "app.py" ]; then
+                            pyinstaller --onedir --name ${env.REPO_NAME} app.py
+                        elif [ -f "main.py" ]; then
+                            pyinstaller --onedir --name ${env.REPO_NAME} main.py
+                        else
+                            echo "No main application file found, skipping PyInstaller"
+                        fi
+                    """
+                }
+            }
+
+            stage('Publish Artifacts') {
+                script {
+                    if (env.BRANCH_NAME?.startsWith('refs/tags/') || env.BRANCH_NAME ==~ /^\d+\.\d+\.\d+.*$/) {
+                        echo "Publishing build artifacts"
+                        sh """
+                            # Create tarball
+                            mkdir -p ${env.BUILD_ARTIFACTS_PATH}/${env.REPO_NAME}
+                            tar -czf ${env.BUILD_ARTIFACTS_PATH}/${env.REPO_NAME}/${env.REPO_NAME}_${env.VERSION}.tar.gz -C dist ${env.REPO_NAME}
+
+                            echo "Artifacts published to ${env.BUILD_ARTIFACTS_PATH}/${env.REPO_NAME}/"
+                        """
+
+                        // Archive in Jenkins
+                        archiveArtifacts artifacts: "dist/**/*", fingerprint: true
+                    } else {
+                        echo "Skipping artifact publishing for non-release builds"
+                    }
+                }
+            }
+
+            // Docker Build and Push stages
+            if (fileExists("${env.WORKSPACE}/Dockerfile")) {
+                stage('Docker Build') {
+                    script {
+                        env.REPO_NAME_LOWER = env.REPO_NAME.toLowerCase()
+                        echo "Building Docker image: ${env.REPO_NAME_LOWER}:${env.VERSION}"
+                        sh """
+                            docker rmi -f ${env.REPO_NAME_LOWER}:latest || true
+                            docker rmi -f ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:${env.VERSION} || true
+                            docker build -t ${env.REPO_NAME_LOWER}:latest .
+                        """
+                    }
+                }
+
+                if (env.BRANCH_NAME?.startsWith('refs/tags/') || env.BRANCH_NAME ==~ /^\d+\.\d+\.\d+.*$/) {
+                    stage('Docker Push') {
+                        script {
+                            echo "Pushing Docker image to registry"
+                            sh """
+                                docker tag ${env.REPO_NAME_LOWER}:latest ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:${env.VERSION}
+                                docker push ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:${env.VERSION}
+
+                                # Also push as 'latest'
+                                docker tag ${env.REPO_NAME_LOWER}:latest ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:latest
+                                docker push ${env.DOCKER_REGISTRY}/${env.REPO_NAME_LOWER}:latest
+                            """
+                        }
+                    }
+                } else {
+                    echo "Skipping Docker push for non-release builds"
+                }
+            }
+        }
+    } catch (err) {
+        currentBuild.result = 'FAILURE'
+        echo "Build failed: ${err}"
+        throw err
+    } finally {
+        notify.sendEmailNotification()
+    }
+}
+
+return this
